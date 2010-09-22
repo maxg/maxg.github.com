@@ -1,0 +1,6 @@
+cd
+git clone --no-checkout https://maxg@github.com/maxg/maxg.github.com.git
+mv maxg.github.com/.git ./.git.home
+git --git-dir .git.home config status.showuntrackedfiles no
+git --git-dir .git.home config user.email "maxg@mit.edu"
+git --git-dir .git.home checkout home

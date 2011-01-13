@@ -1,0 +1,188 @@
+#!/usr/bin/ruby
+
+require 'find'
+require 'set'
+require 'tempfile'
+require 'osx/cocoa'
+
+OSX.require_framework('SyncServices')
+
+module CookieMonster
+  class Whitelist
+    ID = 'net.nondet.clean-cookies'
+    NAME = 'com.apple.syncservices.RecordEntityName'
+    BOOKMARKS = 'com.apple.bookmarks.Bookmark'
+    FOLDERS = 'com.apple.bookmarks.Folder'
+
+    def initialize
+      @set = Set.new
+
+      manager = OSX::ISyncManager.sharedManager
+      throw :SyncManagerDisabled if not manager.isEnabled
+
+      begin
+        desc_file = Tempfile.new(ID)
+        desc_file << sync_client_description
+        desc_file.close
+
+        client = manager.registerClientWithIdentifier_descriptionFilePath_(ID, desc_file.path)
+        client.setShouldSynchronize_withClientsOfType_(true, OSX::ISyncClientTypeApplication)
+
+        session = OSX::ISyncSession.beginSessionWithClient_entityNames_beforeDate_(
+          client, client.enabledEntityNames, OSX::NSDate.dateWithTimeIntervalSinceNow(5))
+        snapshot = session.snapshotOfRecordsInTruth
+
+        ignore = snapshot.recordsWithMatchingAttributes({ NAME => FOLDERS }).find_all { |id, folder|
+          folder['name'].end_with?('-')
+        } .collect { |id, folder| id }
+
+        snapshot.recordsWithMatchingAttributes({ NAME => BOOKMARKS }).each { |id, bookmark|
+          host, name = bookmark['url'].host, bookmark['name']
+          if host && ( ! name.end_with?('-')) && ( ! bookmark['parent'].any? { |p| ignore.include?(p) })
+            @set.add domain_regex(host, name.end_with?('.'))
+          end
+        }
+      ensure
+        manager.unregisterClient(client) if client
+        desc_file.unlink if desc_file
+      end
+
+      throw :EmptyDomainWhitelist if @set.empty?
+    end
+
+    def listed?(domain)
+      return !! @set.detect { |regex| regex =~ domain }
+    end
+
+    private
+
+      def domain_regex(domain, exact)
+        if exact
+          return /^\.?#{Regexp.escape domain}$/
+        else
+          return /^(.*\.)?#{Regexp.escape domain.sub(/^www\./, '')}$/
+        end
+      end
+
+      def sync_client_description
+        return <<-DESC
+          <plist version="1.0">
+          <dict>
+            <key>Entities</key>
+            <dict><key>#{BOOKMARKS}</key>
+                  <array><string>com.apple.syncservices.RecordEntityName</string>
+                         <string>url</string><string>parent</string></array>
+                  <key>#{FOLDERS}</key>
+                  <array><string>com.apple.syncservices.RecordEntityName</string>
+                         <string>name</string></array></dict>
+            <key>PullOnlyEntities</key>
+            <array><string>#{BOOKMARKS}</string>
+                   <string>#{FOLDERS}</string></array>
+          </dict>
+          </plist>
+        DESC
+      end
+  end
+end
+
+module CookieMonster
+  class SafariCookie
+    LABEL = 'Safari Cookies'
+    NAME_BLACKLIST = [ /__gads/, /__qca/, /__unam/, /__utm.*/, /__roi.*/ ]
+
+    def self.cookies()
+      @@store = OSX::NSHTTPCookieStorage.sharedHTTPCookieStorage
+      @@store.cookies.each { |cookie| yield self.new(cookie) }
+    end
+
+    def initialize(cookie) @cookie = cookie end
+    def domain() @cookie.domain end
+    def label() @cookie.name end
+    def ok?()
+      return ! NAME_BLACKLIST.detect{ |regex| regex =~ @cookie.name }
+    end
+    def delete() @@store.deleteCookie(@cookie) end
+  end
+
+  class SafariLocalStorage
+    LABEL = 'Safari Local Storage'
+    LOCALSTORAGE = '~/Library/Safari/LocalStorage/'
+
+    def self.cookies
+      Find.find(File.expand_path(LOCALSTORAGE)) { |file|
+        yield self.new(file) if FileTest.file?(file)
+      }
+    end
+
+    attr_reader :domain
+
+    def initialize(file)
+      @file = file
+      @name, @protocol, @domain = /.*\/LocalStorage\/((.*)_(.*)_\d+).*/.match(file)[1..3]
+    end
+    def label() @name end
+    def ok?()
+      return (domain != '') && (domain != 'localhost')
+    end
+    def delete() File.delete(@file) end
+  end
+
+  class Flash
+    LABEL = 'Flash'
+    FLASHDIR = File.expand_path('~/Library/Preferences/Macromedia/Flash Player')
+    PREFDIR = FLASHDIR + '/macromedia.com/support/flashplayer/sys'
+    LSODIR = FLASHDIR + '/#SharedObjects'
+
+    def self.cookies
+      prefdir = File.new(PREFDIR)
+      prefdir.chmod(prefdir.stat.mode & 0555)
+      Find.find(LSODIR) { |file|
+        yield LSO.new(file) if FileTest.file?(file)
+      }
+      Find.find(PREFDIR) { |file|
+        yield Pref.new(file) if FileTest.file?(file) and file != PREFDIR + '/settings.sol'
+      }
+    end
+
+    attr_reader :domain, :label
+
+    class LSO < Flash
+      def initialize(file)
+        @file = file
+        @domain, label = /\/#SharedObjects\/\w+\/([^\/]+)\/(.+)\.sol$/.match(file)[1..2]
+        @label = "○#{label}"
+      end
+    end
+
+    class Pref < Flash
+      def initialize(file)
+        @file = file
+        @domain, label = /\/flashplayer\/sys\/#([^\/]+)\/(.+)\.sol$/.match(file)[1..2]
+        @label = "●#{label}"
+      end
+    end
+
+    def ok?()
+      return domain != 'localhost'
+    end
+    def delete()
+      File.delete(@file)
+      dir = @file
+      while dir = File.dirname(dir) and dir > FLASHDIR
+        break unless Dir.entries(dir) == [ '.', '..' ]
+        Dir.delete(dir)
+      end
+    end
+  end
+end
+
+whitelist = CookieMonster::Whitelist.new
+
+[ CookieMonster::SafariCookie, CookieMonster::SafariLocalStorage, CookieMonster::Flash ].each do |type|
+  puts type::LABEL
+  type.cookies do |cookie|
+    ok = cookie.ok? && whitelist.listed?(cookie.domain)
+    puts ' %s %-32s %.64s' % [ ok ? ' ' : 'x', cookie.domain, cookie.label ]
+    cookie.delete unless ok
+  end
+end

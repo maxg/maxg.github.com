@@ -1,0 +1,21 @@
+#!/bin/bash
+
+set -e
+
+host=${1:?Specify host}
+config="
+  section: screens
+    $(hostname):
+    $host:
+  end
+  section: links
+    $(hostname):
+      right = $host
+    $host:
+      left = $(hostname)
+  end
+"
+
+( killall synergys | fgrep -v 'No matching processes' )
+synergys --config <( echo "$config" ) --address localhost
+ssh -x -f -R 24800:localhost:24800 $host "killall synergyc ; synergyc --name $host --no-daemon localhost"

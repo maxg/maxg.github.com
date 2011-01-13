@@ -1,0 +1,11 @@
+addversionno = true
+log = false
+
+mountpoint = Documents
+
+path = Documents
+path = Library/Keychains/Notes.keychain
+path = Library/Safari/Bookmarks.plist
+
+ignore = Name .DS_Store
+ignore = Name .localized

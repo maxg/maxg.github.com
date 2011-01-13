@@ -1,0 +1,14 @@
+#!/bin/bash
+
+set -e
+
+host=${1:?Specify host}
+shift
+
+skip='(No Unison)'
+
+find $HOME -name '.*' -prune -o -name "$skip" -exec echo 'Ignoring' {} \;
+find $HOME -name '.*' -prune -o -name "$skip" -print0 2> /dev/null \
+    | perl -0pe "s!$HOME/(.*)/\Q$skip\E!"'-ignore\0Path $1!' \
+    | cat <( echo -ne "$HOME\0ssh://$host//mnt/unison\0" ) - \
+    | xargs -0 -o -t unison

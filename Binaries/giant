@@ -1,0 +1,189 @@
+#!/usr/bin/ruby
+
+require 'optparse'
+
+require 'osx/cocoa'
+
+OSX::NSApplication.sharedApplication
+
+# Quicksilver / Crucible / Code / NSGeometry_BLTRExtensions.m
+
+def centerRectInRect(rect, mainRect)
+  return OSX::NSOffsetRect(rect, OSX::NSMidX(mainRect) - OSX::NSMidX(rect), OSX::NSMidY(mainRect) - OSX::NSMidY(rect))
+end
+
+# Quicksilver / Crucible / Code / NSBezierPath_BLTRExtensions.m
+
+class OSX::NSBezierPath
+  def appendBezierPathWithRoundedRectangle_withRadius_(rect, radius)
+    topMid = OSX::NSMakePoint(OSX::NSMidX(rect), OSX::NSMaxY(rect));
+    topLeft = OSX::NSMakePoint(OSX::NSMinX(rect), OSX::NSMaxY(rect));
+    topRight = OSX::NSMakePoint(OSX::NSMaxX(rect), OSX::NSMaxY(rect));
+    bottomRight = OSX::NSMakePoint(OSX::NSMaxX(rect), OSX::NSMinY(rect));
+    
+    self.moveToPoint_(topMid)
+    self.appendBezierPathWithArcFromPoint_toPoint_radius_(topLeft, rect.origin, radius)
+    self.appendBezierPathWithArcFromPoint_toPoint_radius_(rect.origin, bottomRight, radius)
+    self.appendBezierPathWithArcFromPoint_toPoint_radius_(bottomRight, topRight, radius)
+    self.appendBezierPathWithArcFromPoint_toPoint_radius_(topRight, topLeft, radius)
+    self.closePath
+  end
+end
+
+# Quicksilver / Quicksilver / Code-QuickStepFoundation / NSWindow_BLTRExtensions.m
+
+class OSX::NSWindow
+  def setAlphaValue_fadeTime(fadeOut, seconds)
+    fadeStart = OSX::NSDate.timeIntervalSinceReferenceDate
+    fadeIn = self.alphaValue
+    distance = fadeOut.to_f - fadeIn
+    
+    while (elapsed = ((OSX::NSDate.timeIntervalSinceReferenceDate - fadeStart) / seconds.to_f)) < 1
+      self.setAlphaValue_(fadeIn + elapsed * distance)
+      #OSX::NSThread.sleepUntilDate_(OSX::NSDate.dateWithTimeIntervalSinceNow_(seconds.to_f / 300))
+    end
+    
+    self.setAlphaValue_(fadeOut)
+  end
+end
+
+# Quicksilver / Quicksilver / Code-QuickStepInterface / QSBezelBackgroundView.m
+
+class BackgroundView < OSX::NSView
+  
+  attr_accessor :radius, :color
+  
+  def drawRect(rect)
+    rect = self.bounds
+    roundRect = OSX::NSBezierPath.bezierPath
+    minRadius = [ rect.width, rect.height / 2 ].min
+    
+    roundRect.appendBezierPathWithRoundedRectangle_withRadius_(rect, [minRadius, radius].min)
+    roundRect.addClip
+    
+    color.set
+    OSX::NSRectFill(rect)
+  end
+end
+
+# Quicksilver / Quicksilver / Code-QuickStepInterface / QSLargeTypeDisplay.m
+
+class VanishingWindow < OSX::NSPanel
+  def mouseDown(event)
+    OSX::NSApp.terminate_(nil)
+  end
+end
+
+class ClickthroughTextView < OSX::NSTextView
+  def mouseDown(event)
+    self.nextResponder.mouseDown_(event)
+  end
+end
+
+def show(input, options)
+  string = OSX::NSString.stringWithRubyString(input)
+  inset = 16
+  
+  screenRect = OSX::NSScreen.mainScreen.frame
+  defaults = OSX::NSUserDefaults.standardUserDefaults
+  
+  displayWidth = screenRect.width - 4 * inset
+  displayHeight = screenRect.height - 4 * inset
+  fullRange = OSX::NSMakeRange(0, string.length)
+  
+  formatted = OSX::NSMutableAttributedString.alloc.initWithString_(string)
+  
+  size = 24.upto(1000).find do |size|
+    textFont = OSX::NSFont.boldSystemFontOfSize_(size+1)
+    textSize = string.sizeWithAttributes_(OSX::NSDictionary.dictionaryWithObject_forKey_(textFont, OSX::NSFontAttributeName))
+    (textSize.width > displayWidth + textFont.descender * 2) || (textSize.height > displayHeight + textFont.descender * 2)
+  end
+  formatted.addAttribute_value_range_(OSX::NSFontAttributeName, OSX::NSFont.boldSystemFontOfSize_(size), fullRange)
+  formatted.addAttribute_value_range_(OSX::NSForegroundColorAttributeName, OSX::NSColor.colorWithDeviceWhite_alpha_(1, 1), fullRange)
+  
+  style = OSX::NSParagraphStyle.defaultParagraphStyle.mutableCopy
+  if not input =~ /\n/
+    style.setAlignment_(OSX::NSCenterTextAlignment)
+    style.setLineBreakMode_(OSX::NSLineBreakByWordWrapping)
+  end
+  formatted.addAttribute_value_range_(OSX::NSParagraphStyleAttributeName, style, fullRange)
+  
+  shadow = OSX::NSShadow.alloc.init
+  shadow.setShadowOffset_(OSX::NSMakeSize(5, -5))
+  shadow.setShadowBlurRadius_(10)
+  shadow.setShadowColor_(OSX::NSColor.colorWithDeviceWhite_alpha_(0, 0.64))
+  formatted.addAttribute_value_range_(OSX::NSShadowAttributeName, shadow, fullRange)
+  
+  textView = ClickthroughTextView.alloc.initWithFrame_(OSX::NSMakeRect(0, 0, displayWidth, 0))
+  textView.setEditable_(false)
+  textView.setSelectable_(false)
+  textView.setDrawsBackground_(false)
+  textView.textStorage.setAttributedString_(formatted)
+  textView.sizeToFit
+  
+  textFrame = textView.frame
+  
+  layoutManager = textView.layoutManager
+  
+  numberOfLines = height = index = 0
+  lineRange = OSX::NSRange.new
+  while index < layoutManager.numberOfGlyphs
+    numberOfLines += 1
+    height += layoutManager.lineFragmentRectForGlyphAtIndex_effectiveRange_(index, lineRange).height
+    index = OSX::NSMaxRange(lineRange)
+  end
+  
+  textFrame.size.height = (numberOfLines+0.1) * layoutManager.defaultLineHeightForFont_(OSX::NSFont.boldSystemFontOfSize_(size))
+  textFrame.size.height = [ screenRect.height - 80, textFrame.height ].min
+  textView.setFrame_(textFrame)
+  
+  windowRect = centerRectInRect(textFrame, screenRect);
+  windowRect = OSX::NSInsetRect(windowRect, -inset, -inset)
+  windowRect = OSX::NSIntegralRect(windowRect)
+  largeTypeWindow = VanishingWindow.alloc.initWithContentRect_styleMask_backing_defer_(windowRect, OSX::NSBorderlessWindowMask | OSX::NSNonactivatingPanelMask, OSX::NSBackingStoreBuffered, false)
+  #largeTypeWindow.setIgnoresMouseEvents_(true)
+  largeTypeWindow.setFrame_display_(centerRectInRect(windowRect, screenRect), true)
+  largeTypeWindow.setBackgroundColor_(OSX::NSColor.clearColor)
+  largeTypeWindow.setOpaque_(false)
+  largeTypeWindow.setLevel_(OSX::NSFloatingWindowLevel)
+  largeTypeWindow.setHidesOnDeactivate_(false)
+  
+  content = BackgroundView.alloc.initWithFrame_(OSX::NSZeroRect)
+  content.radius = 32
+  content.color = OSX::NSColor.colorWithDeviceWhite_alpha_(0, 0.82)
+  largeTypeWindow.setHasShadow_(true)
+  largeTypeWindow.setContentView_(content)
+  textView.setFrame_(centerRectInRect(textView.frame, content.frame))
+  content.addSubview_(textView)
+
+  largeTypeWindow.setAlphaValue_(0)
+  largeTypeWindow.makeKeyAndOrderFront_(nil)
+  #largeTypeWindow.setInitialFirstResponder_(textView)
+  largeTypeWindow.setAlphaValue_fadeTime_(1, 0.2)
+  #largeTypeWindow.contentView.display
+  
+  if options[:fade]
+    OSX::NSThread.sleepUntilDate_(options[:fade])
+    largeTypeWindow.setAlphaValue_fadeTime_(0, 0.2)
+    OSX::NSApp.terminate_(nil)
+  end
+end
+
+trap('INT') do
+  puts
+  OSX::NSApp.terminate_(nil)
+end
+
+options = {}
+OptionParser.new do |opts|
+  opts.on('-f', '--fade SECONDS') do |seconds|
+    options[:fade] = OSX::NSDate.dateWithTimeIntervalSinceNow_(seconds)
+  end
+end.parse!
+
+if not ARGV.empty?
+  show(ARGV.join(' ').strip, options)
+else
+  show(ARGF.read.strip, options)
+end
+OSX::NSApp.run

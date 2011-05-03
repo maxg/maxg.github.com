@@ -48,6 +48,8 @@ module CookieMonster
       end
 
       throw :EmptyDomainWhitelist if @set.empty?
+
+      @set.add /^localhost$/
     end
 
     def listed?(domain)
@@ -163,7 +165,7 @@ module CookieMonster
     end
 
     def ok?()
-      return domain != 'localhost'
+      return true
     end
     def delete()
       File.delete(@file)

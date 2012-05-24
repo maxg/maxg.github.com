@@ -128,6 +128,35 @@ module CookieMonster
     def delete() File.delete(@file) end
   end
 
+  class SafariDatabase
+    LABEL = 'Safari Databases'
+    DATABASES = File.expand_path('~/Library/Safari/Databases')
+
+    def self.cookies
+      Find.find(DATABASES) { |file|
+        yield self.new(file) if FileTest.file?(file) and file != DATABASES + '/Databases.db'
+      }
+    end
+
+    attr_reader :domain, :label
+
+    def initialize(file)
+      @file = file
+      @label, @protocol, @domain = /.*\/Databases\/((.*)_(.*)_\d+\/[\da-f]+).*/.match(file)[1..3]
+    end
+    def ok?()
+      return (domain != '') && (domain != 'localhost')
+    end
+    def delete()
+      File.delete(@file)
+      dir = @file
+      while dir = File.dirname(dir) and dir > DATABASES
+        break unless Dir.entries(dir) == [ '.', '..' ]
+        Dir.delete(dir)
+      end
+    end
+  end
+
   class Flash
     LABEL = 'Flash'
     FLASHDIR = File.expand_path('~/Library/Preferences/Macromedia/Flash Player')
@@ -179,7 +208,10 @@ end
 
 whitelist = CookieMonster::Whitelist.new
 
-[ CookieMonster::SafariCookie, CookieMonster::SafariLocalStorage, CookieMonster::Flash ].each do |type|
+[ CookieMonster::SafariCookie,
+  CookieMonster::SafariLocalStorage,
+  CookieMonster::SafariDatabase,
+  CookieMonster::Flash ].each do |type|
   puts type::LABEL
   type.cookies do |cookie|
     ok = cookie.ok? && whitelist.listed?(cookie.domain)

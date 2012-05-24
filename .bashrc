@@ -5,6 +5,8 @@ alias ll="l -l"
 alias la="l -A"
 alias lla="l -lA"
 
+alias cdf='cd "`osascript -e '"'tell application \"Finder\" to POSIX path of (insertion location as alias)'"'`"'
+
 case $TERM in
     xterm|xterm-color)
         PROMPT_COMMAND='echo -ne "\033]0;`hostname -s|tr "[:upper:]" "[:lower:]"`:${PWD/$HOME/~}\007"'

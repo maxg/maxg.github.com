@@ -90,7 +90,7 @@ end
 module CookieMonster
   class SafariCookie
     LABEL = 'Safari Cookies'
-    NAME_BLACKLIST = [ /__gads/, /__qca/, /__unam/, /__utm.*/, /__roi.*/ ]
+    NAME_BLACKLIST = [ /__gads/, /__qca/, /__unam/, /__utm.*/, /__roi.*/, /km_.*/ ]
 
     def self.cookies()
       @@store = OSX::NSHTTPCookieStorage.sharedHTTPCookieStorage
@@ -108,21 +108,20 @@ module CookieMonster
 
   class SafariLocalStorage
     LABEL = 'Safari Local Storage'
-    LOCALSTORAGE = '~/Library/Safari/LocalStorage/'
+    LOCALSTORAGE = File.expand_path('~/Library/Safari/LocalStorage/')
 
     def self.cookies
-      Find.find(File.expand_path(LOCALSTORAGE)) { |file|
-        yield self.new(file) if FileTest.file?(file)
+      Find.find(LOCALSTORAGE) { |file|
+        yield self.new(file) if FileTest.file?(file) and file =~ /\.localstorage$/
       }
     end
 
-    attr_reader :domain
+    attr_reader :domain, :label
 
     def initialize(file)
       @file = file
-      @name, @protocol, @domain = /.*\/LocalStorage\/((.*)_(.*)_\d+).*/.match(file)[1..3]
+      @label, @protocol, @domain = /.*\/LocalStorage\/((.*)_(.*)_\d+).*/.match(file)[1..3]
     end
-    def label() @name end
     def ok?()
       return (domain != '') && (domain != 'localhost')
     end

@@ -17,6 +17,9 @@ if [ "$PS1" ]; then
     export PS1='\[\033[1;32m\][\[\033[0m\]\u@`hostname -s|tr "[:upper:]" "[:lower:]"`:\w\[\033[1;32m\]]\$\[\033[0m\] '
 fi
 
+export HISTSIZE=5000
+shopt -s histappend
+
 export EDITOR=vim
 
 set -o vi

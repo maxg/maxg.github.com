@@ -1,0 +1,9 @@
+[user]
+	name = Max Goldman
+	email = 
+[core]
+	quotepath = false
+[push]
+	default = upstream
+[alias]
+	lol = log --graph --oneline --decorate --color

@@ -6,4 +6,4 @@
 [push]
 	default = upstream
 [alias]
-	lol = log --graph --oneline --decorate --color
+	lol = log --graph --oneline --decorate --color --all

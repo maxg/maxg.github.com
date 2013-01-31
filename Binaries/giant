@@ -81,7 +81,7 @@ class ClickthroughTextView < OSX::NSTextView
 end
 
 def show(input, options)
-  string = OSX::NSString.stringWithRubyString(input)
+  string = OSX::NSString.alloc.initWithString(input)
   inset = 16
   
   screenRect = OSX::NSScreen.mainScreen.frame
